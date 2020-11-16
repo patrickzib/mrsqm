@@ -94,3 +94,6 @@ def load_from_arff_to_dataframe(
 
 def sfa_transform(itrain, itest, otrain, otest):
     subprocess.call(['java', '-jar', 'TestSFA-all.jar', itrain, itest, otrain, otest])
+
+def mvts_sfa_transform(itrain, itest, otrain, otest):
+    subprocess.call(['java', '-jar', 'mvts-SFA.jar', itrain, itest, otrain, otest])

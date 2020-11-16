@@ -1,6 +1,8 @@
 from mrsqm import MrSQMClassifier
 from sklearn import metrics
+from sklearn.model_selection import train_test_split
 import util
+#from sktime.datasets import load_arrow_head, load_basic_motions
 
 import logging
 import sys
@@ -63,6 +65,44 @@ def mrsqm_with_sfa():
     predicted = clf.predict(X_test, ext_rep = otest) # use ext_rep to add sfa transform
     print("MrSQM-RS with both SAX and SFA accuracy: " + str(metrics.accuracy_score(y_test, predicted)))
 
+def multivariate_mrsqm():
+    X, y = load_basic_motions(return_X_y=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=42)
+
+    # train MrSQM-R with SAX only
+    clf = MrSQMClassifier(strat = 'R')
+    clf.fit(X_train,y_train)
+    predicted = clf.predict(X_test)
+    print("MrSQM-R accuracy: " + str(metrics.accuracy_score(y_test, predicted)))
+
+def multivariate_mrsqm_with_sfa():
+    itrain = "data/BasicMotions/BasicMotions_TRAIN.arff"
+    itest = "data/BasicMotions/BasicMotions_TEST.arff"
+
+    X_train,y_train = util.load_from_arff_to_dataframe(itrain)
+    X_test,y_test = util.load_from_arff_to_dataframe(itest)
+
+    # SFA transform
+    # since the sfa python implementation is significantly slow, we opt for the java version https://github.com/patrickzib/SFA
+    
+    otrain = 'sfa.train'
+    otest = 'sfa.test'
+
+    # run a jar file to do sfa transform
+    util.mvts_sfa_transform(itrain, itest, otrain, otest)
+
+    # train MrSQM-RS with SFA only
+    clf = MrSQMClassifier(use_sax = False) # train MrSQM-RS
+    clf.fit(X_train,y_train, ext_rep = otrain) # use ext_rep to add sfa transform
+    predicted = clf.predict(X_test, ext_rep = otest) # use ext_rep to add sfa transform
+    print("MrSQM-RS with SFA only accuracy: " + str(metrics.accuracy_score(y_test, predicted)))
+
+    # train MrSQM-RS with both SAX and SFA
+    clf = MrSQMClassifier() # train MrSQM-RS
+    clf.fit(X_train,y_train, ext_rep = otrain) # use ext_rep to add sfa transform
+    predicted = clf.predict(X_test, ext_rep = otest) # use ext_rep to add sfa transform
+    print("MrSQM-RS with both SAX and SFA accuracy: " + str(metrics.accuracy_score(y_test, predicted)))
+
 if __name__ == "__main__":
-    basic_example()
+    multivariate_mrsqm_with_sfa()
     # mrsqm_with_sfa() # require running jar file
