@@ -148,6 +148,41 @@ class MrSQMClassifier:
         debug_logging("Mode: " + str(self.xrep))
         debug_logging("Number of features per rep: " + str(self.fpr))
         debug_logging("Number of candidates per rep (only for SR and RS):" + str(self.spr))
+
+    def get_exemplars(self,X, y):
+        return None
+
+    def evaluate_pars(self, exemplars, pars):
+        return None
+
+    def select_pars(self, X, y):
+
+        n_cdds = 10 # number of candidates per round
+        n_rounds = 100 # number of rounds ~ number or reps 
+
+        ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
+        wl_choices = [6,7,8,9,10,11,12,13,14,15,16]
+        alphabet_choices = [3,4,5,6]
+
+        pars = []
+
+        for i in range(n_rounds):
+            highest_scr = 0 #
+            exemplars = self.get_exemplars(X,y)
+            chosen = [np.random.choice(ws_choices),np.random.choice(wl_choices),np.random.choice(alphabet_choices)] # first candidate
+            highest_scr = self.evaluate_pars(exemplars,chosen)
+            for i in range(n_cdds - 1):
+                ws = np.random.choice(ws_choices)
+                wl = np.random.choice(wl_choices)
+                a = np.random.choice(alphabet_choices)
+                score = self.evaluate_pars(exemplars, [ws, wl, a])
+                if score > highest_scr:
+                    highest_scr = score
+                    chosen = [ws,wl,a]
+            pars.append(chosen)
+
+
+        return pars
         
      
 
