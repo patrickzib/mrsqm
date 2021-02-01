@@ -12,8 +12,9 @@ from sklearn.feature_selection import chi2
 
 import logging
 
-def debug_logging(message):
-    logging.info(message)
+def debug_logging(message, level=10):
+    logging.log(level, message)
+
 
 
 
@@ -67,8 +68,12 @@ cdef class PySAX:
 cdef extern from "strie.cpp":
     cdef cppclass SeqTrie:
         SeqTrie(vector[string])
-        vector[int] search(string)
+        vector[int] search(string)    
+    double cosine_similarity(vector[string] &, vector[string] &)
+    double cosine_similarity_with_set(vector[string] &, vector[string] &)
 
+def cs(vector[string] s1, vector[string] s2):
+    return cosine_similarity(s1,s2)
 
 cdef extern from "sqminer.h":
     cdef cppclass SQMiner:
@@ -84,7 +89,7 @@ cdef class PyFeatureTrie:
         del self.thisptr
 
     def search(self, string sequence):
-        return self.thisptr.search(sequence)
+        return self.thisptr.search(sequence) 
 
 
 cdef class PySQM:
@@ -143,22 +148,44 @@ class MrSQMClassifier:
         self.xrep = xrep  
         self.filters = [] # feature filters (one filter for a rep) for test data transformation
 
-        debug_logging("Initialize MrSQM Classifier.")
-        debug_logging("Feature Selection Strategy: " + strat)
-        debug_logging("Mode: " + str(self.xrep))
-        debug_logging("Number of features per rep: " + str(self.fpr))
-        debug_logging("Number of candidates per rep (only for SR and RS):" + str(self.spr))
+        self.centroids = []
+
+        debug_logging("Initialize MrSQM Classifier.",40)
+        debug_logging("Feature Selection Strategy: " + strat,40)
+        debug_logging("Mode: " + str(self.xrep),40)
+        debug_logging("Number of features per rep: " + str(self.fpr),40)
+        debug_logging("Number of candidates per rep (only for SR and RS):" + str(self.spr),40)
 
     def get_exemplars(self,X, y):
-        return None
+        y = np.array(y)
+        # random sample
+        exs = []
+        
+        for l in np.unique(y):
+            exs.append(np.random.choice(np.where(y==l)[0]))
+        return [X.iloc[i,0] for i in exs]
+
+        # centroids
+        # if not self.centroids:
+        #     for l in np.unique(y):
+        #         self.centroids.append(X[y == l].sum()[0].values / np.sum(y==l))
+
+        # return self.centroids
 
     def evaluate_pars(self, exemplars, pars):
-        return None
+        ps = PySAX(pars[0], pars[1], pars[2], 1)
+        sr = 0.0
+        pairs = [(p1, p2) for p1 in range(len(exemplars)) for p2 in range(p1+1, len(exemplars))]
+        for p1,p2 in pairs:
+            sr += cs(ps.timeseries2SAX(exemplars[p1]), ps.timeseries2SAX(exemplars[p2]))
+        return sr
 
-    def select_pars(self, X, y):
+    def evaluate_and_select_pars(self, X, y):       
+
+        max_ws = len(X.iloc[0, 0])
 
         n_cdds = 10 # number of candidates per round
-        n_rounds = 100 # number of rounds ~ number or reps 
+        n_rounds = int(np.log2(max_ws))+ 1 - 3 # number of rounds ~ number or reps 
 
         ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
         wl_choices = [6,7,8,9,10,11,12,13,14,15,16]
@@ -175,31 +202,40 @@ class MrSQMClassifier:
                 ws = np.random.choice(ws_choices)
                 wl = np.random.choice(wl_choices)
                 a = np.random.choice(alphabet_choices)
+                debug_logging('Candidate: ' + str(ws) + '/' + str(wl) + '/' + str(a), 20)
                 score = self.evaluate_pars(exemplars, [ws, wl, a])
+                debug_logging('Score: ' + str(score), 20)
                 if score > highest_scr:
-                    highest_scr = score
+                    debug_logging('New highscore. Best candidate yet.', 20)
+                    highest_scr = score                    
                     chosen = [ws,wl,a]
             pars.append(chosen)
 
-
-        return pars
+        debug_logging("Selected Parameters: ", 30)
+        debug_logging(str(pars), 30)
+        debug_logging("Number of Reps: " + str(len(pars)),30)  
+        
+        self.config = []
+        for p in pars:
+            self.config.append({'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'dilation': 1})      
         
      
 
     def create_pars(self, min_ws, max_ws, random_sampling=False):
         pars = []            
         if random_sampling:    
-            debug_logging("Sampling window size, word length, and alphabet size.")       
+            debug_logging("Sampling window size, word length, and alphabet size.",20)       
             ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
             wl_choices = [6,8,10,12,14,16]
             alphabet_choices = [3,4,5,6]
             for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1):
                 pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices)])
         else:
-            debug_logging("Doubling the window while fixing word length and alphabet size.")                   
+            debug_logging("Doubling the window while fixing word length and alphabet size.",20)                   
             pars = [[int(2**(w/self.xrep)),8,4] for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]     
 
-        debug_logging("Symbolic Parameters: " + str(pars))      
+        debug_logging("Random Generated Parameters: " + str(pars),30)      
+        debug_logging("Number of Reps: " + str(len(pars)),30)  
             
         
         return pars            
@@ -356,13 +392,16 @@ class MrSQMClassifier:
 
 
 
-    def fit(self, X, y, ext_rep = None):
+    def fit(self, X, y, ext_rep = None, test_pars_selection = True):
         debug_logging("Fit training data.")
         self.classes_ = np.unique(y) #because sklearn also uses np.unique
 
         int_y = [np.where(self.classes_ == c)[0][0] for c in y]
 
         self.sequences = []
+
+        if test_pars_selection:
+            self.evaluate_and_select_pars(X,y)
 
         debug_logging("Search for subsequences.")
         mr_seqs = []
