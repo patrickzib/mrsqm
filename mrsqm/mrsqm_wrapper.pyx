@@ -64,6 +64,7 @@ cdef extern from "sfa/SFAWrapper.cpp":
         SFAWrapper(int, int, int, bool)        
         void fit(vector[vector[double]], vector[double])
         vector[string] transform(vector[vector[double]], vector[double])
+        vector[vector[vector[int]]] transform2n(vector[vector[double]], vector[double])
     cdef void printHello()
 
 cdef class PySFA:
@@ -84,6 +85,9 @@ cdef class PySFA:
 
     def transform(self, X, y):
         return self.thisptr.transform(X,y)
+
+    def transform2n(self, X, y):
+        return self.thisptr.transform2n(X,y)
 
 
 
@@ -148,7 +152,7 @@ class MrSQMClassifier:
 
     '''
 
-    def __init__(self, strat = 'SR', features_per_rep = 1000, selection_per_rep = 2000, use_sax = True, use_sfa = False, custom_config=None, xrep = 4):
+    def __init__(self, strat = 'SR', features_per_rep = 100, selection_per_rep = 200, use_sax = False, use_sfa = True, custom_config=None, xrep = 1):
 
         self.use_sax = use_sax
         self.use_sfa = use_sfa
@@ -175,6 +179,10 @@ class MrSQMClassifier:
         debug_logging("Mode: " + str(self.xrep))
         debug_logging("Number of features per rep: " + str(self.fpr))
         debug_logging("Number of candidates per rep (only for SR and RS):" + str(self.spr))
+
+        self.max_alphabet = [b'!', b'"', b'#', b'$', b'%', b'&', b"'", b'(', b')', b'*', b'+', b',', b'-', b'.', b'/', b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b':', b';', b'<', b'=', b'>', b'?', b'@', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'[', b'\\', b']', b'^', b'_', b'`', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z', b'{', b'|', b'}', b'~']
+        self.sfa_start = 0
+        self.sax_start = 64
         
      
 
@@ -183,8 +191,8 @@ class MrSQMClassifier:
         if random_sampling:    
             debug_logging("Sampling window size, word length, and alphabet size.")       
             ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
-            wl_choices = [6,7,8,9,10,11,12,13,14]
-            alphabet_choices = [3,4,5,6]
+            wl_choices = [6,7,8,9,10]
+            alphabet_choices = [4]
             for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1):
                 pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices)])
         else:
@@ -219,15 +227,18 @@ class MrSQMClassifier:
             if self.use_sax:
                 pars = self.create_pars(min_ws, max_ws, True)
                 for p in pars:
+                    features = self.random_sequences(p[1],p[2])
                     self.config.append(
-                        {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 
+                        {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'features': features ,
                         # 'dilation': np.int32(2 ** np.random.uniform(0, np.log2((min_len - 1) / (p[0] - 1))))})
                         'dilation': 1})
+                    
             if self.use_sfa:
                 pars = self.create_pars(min_ws, max_ws, True)
                 for p in pars:
+                    features = self.random_sequences(p[1],p[2])
                     self.config.append(
-                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2]                    
+                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'features': features
                         })        
 
         
@@ -244,120 +255,43 @@ class MrSQMClassifier:
                     if 'signature' not in cfg:
                         cfg['signature'] = PySFA(cfg['window'], cfg['word'], cfg['alphabet'], True).fit(ts_x_array,y)
                     
-                    tssr = cfg['signature'].transform(ts_x_array,y)
-                multi_tssr.append(tssr)        
+                    tssr = np.array(cfg['signature'].transform2n(ts_x_array,y))
+                multi_tssr.append(np.array(tssr))        
 
         return multi_tssr
   
-    def sample_random_sequences(self, seqs, min_length, max_length, max_n_seq):  
-                
-        output = set()
-        splitted_seqs = [s.split(b' ') for s in seqs]
-        n_input = len(seqs)       
 
-        # while len(output) < n_seq: #infinity loop if sequences are too alike
-        for i in range(0, max_n_seq):
-            did = randint(0,n_input)
-            wid = randint(0,len(splitted_seqs[did]))
-            word = splitted_seqs[did][wid]
+
+    def random_sequences(self, seq_length, alphabet_size):
+
+        output = np.zeros((self.fpr,seq_length))
+        alphabet = [i for i in range(0,alphabet_size)]
+        for i in range(self.fpr):
+            output[i,:] = np.random.choice(alphabet,seq_length)
             
-            s_length = randint(min_length, min(len(word) + 1, max_length + 1))
-            start = randint(0,len(word) - s_length + 1)        
-            sampled = word[start:(start + s_length)]
-            output.add(sampled)
-        
-        return list(output)
-
-    def feature_selection_on_train(self, mr_seqs, y):
-        debug_logging("Compute train data in subsequence space.")
-        full_fm = []
-        self.filters = []
-
-        for rep, seq_features in zip(mr_seqs, self.sequences):            
-            fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
-            ft = PyFeatureTrie(seq_features)
-            for i,s in enumerate(rep):
-                fm[i,:] = ft.search(s)            
-            fm = fm > 0 # binary only
-
-            fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
-            if self.strat == 'RS':
-                debug_logging("Filter subsequences of this representation with chi2 (only with RS).")
-                fm = fs.fit_transform(fm, y)
-
-            self.filters.append(fs)
-            full_fm.append(fm)
+        return np.unique(output, axis = 0)
 
 
-        full_fm = np.hstack(full_fm)
-
-        return full_fm
-
-    def feature_selection_on_test(self, mr_seqs):
-        debug_logging("Compute test data in subsequence space.")
-        full_fm = []
-        
-
-        for rep, seq_features, fs in zip(mr_seqs, self.sequences, self.filters):            
-            fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
-            ft = PyFeatureTrie(seq_features)
-            for i,s in enumerate(rep):
-                fm[i,:] = ft.search(s)
-            fm = fm > 0 # binary only
-
-            if self.strat == 'RS':
-                fm = fs.transform(fm)        
-            full_fm.append(fm)
+    
+    def feature_transform(self, mr_seqs):
+        fm = []
+        for rep, cfg in zip(mr_seqs, self.config):
+            threshold = cfg["word"]
+            for ft in cfg["features"]:
+                #print(rep)
+                distances = np.sum(np.abs(rep - ft),axis=2)
+                ft_output = np.sum(distances < threshold,axis=1)
+                fm.append(ft_output)        
+        return np.array(fm).T
 
 
-        full_fm = np.hstack(full_fm)
 
-        return full_fm
 
-    def read_reps_from_file(self, inputf):
-        last_cfg = None
-        mr_seqs = []
-        rep = []
-        i = 0
-        for l in open(inputf,"r"):
-            i += 1
-            l_splitted = bytes(l,'utf-8').split(b" ")
-            cfg = l_splitted[0]
-            seq = b" ".join(l_splitted[2:])
-            if cfg == last_cfg:
-                rep.append(seq)
-            else:
-                last_cfg = cfg
-                if rep:
-                    mr_seqs.append(rep)
-                rep = [seq]
-        if rep:
-            mr_seqs.append(rep)    
-        return mr_seqs
 
-    def mine(self,rep, int_y):        
-        mined_subs = []
-        if self.strat == 'S':
-            debug_logging("Select " + str(self.fpr) + " discrimative subsequences with SQM.")
-            miner = PySQM(self.fpr,0.0)
-            mined_subs = miner.mine(rep, int_y)
 
-        elif self.strat == 'SR':
-            debug_logging("Select " + str(self.spr) + " discrimative subsequences with SQM.")
-            miner = PySQM(self.spr,0.0)
-            mined_subs = miner.mine(rep, int_y)
-            debug_logging("Randomly pick " + str(self.fpr) + " subsequences from the list.")
-            mined_subs = np.random.permutation(mined_subs)[:self.fpr].tolist()
+   
 
-        elif self.strat == 'R':
-            debug_logging("Random sampling " + str(self.fpr) + " subsequences from this symbolic representation.")
-            mined_subs = self.sample_random_sequences(rep,3,16,self.fpr)
-        elif self.strat == 'RS':
-            debug_logging("Random sampling " + str(self.spr) + " subsequences from this symbolic representation.")
-            mined_subs = self.sample_random_sequences(rep,3,16,self.spr)
 
-        debug_logging("Found " + str(len(mined_subs)) + " unique subsequences.")
-        return mined_subs
 
 
 
@@ -370,17 +304,9 @@ class MrSQMClassifier:
         self.sequences = []
 
         debug_logging("Search for subsequences.")
-        mr_seqs = []
-
-        if X is not None:
-            mr_seqs = self.transform_time_series(X,y)
-        if ext_rep is not None:
-            mr_seqs.extend(self.read_reps_from_file(ext_rep))
-        
-        
-        for rep in mr_seqs:
-            mined = self.mine(rep,int_y)
-            self.sequences.append(mined)
+        mr_seqs = []        
+        mr_seqs = self.transform_time_series(X,y)     
+    
 
 
     
@@ -388,9 +314,10 @@ class MrSQMClassifier:
         # then fit the new data to a logistic regression model
         
         debug_logging("Compute feature vectors.")
-        train_x = self.feature_selection_on_train(mr_seqs, int_y)
+        train_x = self.feature_transform(mr_seqs)
         
         debug_logging("Fit logistic regression model.")
+        #print(train_x)
         self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
         self.classes_ = self.clf.classes_ # shouldn't matter       
     
@@ -399,7 +326,7 @@ class MrSQMClassifier:
         y = np.random.choice([-1.0,1.0], X.shape[0])
         mr_seqs = self.transform_time_series(X,y)        
 
-        return self.feature_selection_on_test(mr_seqs)
+        return self.feature_transform(mr_seqs)
 
     def predict_proba(self, X):        
         test_x = self.transform_test_X(X)

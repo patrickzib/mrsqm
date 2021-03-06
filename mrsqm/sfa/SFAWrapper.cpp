@@ -103,6 +103,27 @@ public:
         }
         return seqs;
     }
+
+    std::vector<std::vector<std::vector<int>>> transform2n(std::vector<std::vector<double>> &X, std::vector<double> &y)
+    {
+        std::vector<std::shared_ptr<TimeSeries>> samples = toTimeSeriesData(X, y);
+        std::vector<std::vector<std::vector<int>>> seqs;
+        MFT fft(windowSize, normMean, sfa);
+
+        for (auto ts : samples)
+        {
+            std::vector<std::vector<unsigned short>> words = fft.transform2Array(ts, maxFeatures);
+
+            std::vector<std::vector<int>> int_words;
+            for (auto w: words){
+                std::vector<int> int_w(std::begin(w), std::end(w));
+                int_words.emplace_back(int_w);
+            }
+             
+            seqs.emplace_back(int_words);       
+        }
+        return seqs;
+    }
 };
 
 void printHello()
