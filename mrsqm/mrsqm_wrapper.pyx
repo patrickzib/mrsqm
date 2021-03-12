@@ -376,10 +376,18 @@ class MrSQMClassifier:
             mr_seqs = self.transform_time_series(X,y)
         if ext_rep is not None:
             mr_seqs.extend(self.read_reps_from_file(ext_rep))
+
+        sampling_rate = 0.4
+        n_samples = int(sampling_rate * len(int_y))
         
         
         for rep in mr_seqs:
-            mined = self.mine(rep,int_y)
+            # samplingW
+            samples = np.random.permutation(len(int_y))[:n_samples]
+            sampled_rep = [rep[i] for i in samples]
+            sampled_y = [int_y[i] for i in samples]
+
+            mined = self.mine(sampled_rep,sampled_y)
             self.sequences.append(mined)
 
 
