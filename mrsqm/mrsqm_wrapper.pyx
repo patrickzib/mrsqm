@@ -278,7 +278,7 @@ class MrSQMClassifier:
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
                 fm[i,:] = ft.search(s)            
-            fm = fm > 0 # binary only
+            #fm = fm > 0 # binary only
 
             fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
             if self.strat == 'RS':
@@ -359,6 +359,28 @@ class MrSQMClassifier:
         debug_logging("Found " + str(len(mined_subs)) + " unique subsequences.")
         return mined_subs
 
+    def word_sampling(self, rep, y):
+
+
+        new_rep = []
+        new_y = []
+        
+        splitted_seqs = [s.split(b' ') for s in rep]
+        n_input = len(rep)       
+
+        n_samples = int(n_input * len(splitted_seqs[0]) * 0.2)
+
+        # while len(output) < n_seq: #infinity loop if sequences are too alike
+        for i in range(n_samples):
+            did = randint(0,n_input)
+            wid = randint(0,len(splitted_seqs[did]))
+            word = splitted_seqs[did][wid]
+            
+            new_rep.append(word)
+            new_y.append(y[did])
+            
+        
+        return new_rep, new_y
 
 
     def fit(self, X, y, ext_rep = None):
@@ -379,6 +401,7 @@ class MrSQMClassifier:
         
         
         for rep in mr_seqs:
+            new_rep, new_y = self.word_sampling(rep, int_y)
             mined = self.mine(rep,int_y)
             self.sequences.append(mined)
 
