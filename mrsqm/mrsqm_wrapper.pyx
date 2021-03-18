@@ -10,6 +10,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
 
+from sklearn.preprocessing import normalize
+
 from sktime.utils.data_processing import from_nested_to_2d_array
 
 import logging
@@ -268,6 +270,11 @@ class MrSQMClassifier:
         
         return list(output)
 
+    def preprocess(self, fm):
+        #return fm > 0 # binary only
+        return normalize(fm)
+
+
     def feature_selection_on_train(self, mr_seqs, y):
         debug_logging("Compute train data in subsequence space.")
         full_fm = []
@@ -291,7 +298,7 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        return self.preprocess(full_fm)
 
     def feature_selection_on_test(self, mr_seqs):
         debug_logging("Compute test data in subsequence space.")
@@ -303,7 +310,7 @@ class MrSQMClassifier:
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
                 fm[i,:] = ft.search(s)
-            fm = fm > 0 # binary only
+            #fm = fm > 0 # binary only
 
             if self.strat == 'RS':
                 fm = fs.transform(fm)        
@@ -312,7 +319,7 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        return self.preprocess(full_fm)
 
     def read_reps_from_file(self, inputf):
         last_cfg = None
