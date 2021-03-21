@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
+from sklearn.feature_selection import VarianceThreshold
 
 from sktime.utils.data_processing import from_nested_to_2d_array
 
@@ -183,10 +184,11 @@ class MrSQMClassifier:
         if random_sampling:    
             debug_logging("Sampling window size, word length, and alphabet size.")       
             ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
-            wl_choices = [6,7,8,9,10,11,12,13,14]
-            alphabet_choices = [3,4,5,6]
+            wl_choices = [8,10,12,14,16]
+            alphabet_choices = [4]
+            bias_choices = [0]
             for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1):
-                pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices)])
+                pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices), np.random.choice(bias_choices)])
         else:
             debug_logging("Doubling the window while fixing word length and alphabet size.")                   
             pars = [[int(2**(w/self.xrep)),8,4] for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]     
@@ -220,14 +222,14 @@ class MrSQMClassifier:
                 pars = self.create_pars(min_ws, max_ws, True)
                 for p in pars:
                     self.config.append(
-                        {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 
-                        # 'dilation': np.int32(2 ** np.random.uniform(0, np.log2((min_len - 1) / (p[0] - 1))))})
+                        {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'bias': p[3],
+                        
                         'dilation': 1})
             if self.use_sfa:
                 pars = self.create_pars(min_ws, max_ws, True)
                 for p in pars:
                     self.config.append(
-                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2]                    
+                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'bias': p[3],     
                         })        
 
         
@@ -268,19 +270,22 @@ class MrSQMClassifier:
         
         return list(output)
 
+    def preprocess(self, fm):
+        return fm
+
     def feature_selection_on_train(self, mr_seqs, y):
         debug_logging("Compute train data in subsequence space.")
         full_fm = []
         self.filters = []
 
-        for rep, seq_features in zip(mr_seqs, self.sequences):            
+        for rep, seq_features, cfg in zip(mr_seqs, self.sequences, self.config):            
             fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
                 fm[i,:] = ft.search(s)            
-            fm = fm > 0 # binary only
+            fm = fm > cfg['bias'] 
 
-            fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
+            fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))            
             if self.strat == 'RS':
                 debug_logging("Filter subsequences of this representation with chi2 (only with RS).")
                 fm = fs.fit_transform(fm, y)
@@ -288,22 +293,23 @@ class MrSQMClassifier:
             self.filters.append(fs)
             full_fm.append(fm)
 
-
+        
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        self.final_fs = VarianceThreshold()    
+        return self.final_fs.fit_transform(full_fm,y)
 
     def feature_selection_on_test(self, mr_seqs):
         debug_logging("Compute test data in subsequence space.")
         full_fm = []
         
 
-        for rep, seq_features, fs in zip(mr_seqs, self.sequences, self.filters):            
+        for rep, seq_features, fs, cfg in zip(mr_seqs, self.sequences, self.filters, self.config):            
             fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
                 fm[i,:] = ft.search(s)
-            fm = fm > 0 # binary only
+            fm = fm > cfg['bias'] 
 
             if self.strat == 'RS':
                 fm = fs.transform(fm)        
@@ -312,7 +318,7 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        return self.final_fs.transform(full_fm)
 
     def read_reps_from_file(self, inputf):
         last_cfg = None
