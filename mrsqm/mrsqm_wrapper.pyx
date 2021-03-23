@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression
 
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
+from sklearn.feature_selection import VarianceThreshold
 
 from sktime.utils.data_processing import from_nested_to_2d_array
 
@@ -291,7 +292,8 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        self.vt_filter = VarianceThreshold()
+        return self.vt_filter.fit_transform(full_fm)
 
     def feature_selection_on_test(self, mr_seqs):
         debug_logging("Compute test data in subsequence space.")
@@ -312,7 +314,7 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return full_fm
+        return self.vt_filter.transform(full_fm)
 
     def read_reps_from_file(self, inputf):
         last_cfg = None
@@ -387,7 +389,8 @@ class MrSQMClassifier:
         train_x = self.feature_selection_on_train(mr_seqs, int_y)
         
         debug_logging("Fit logistic regression model.")
-        self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
+        #self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
+        self.clf = LogisticRegression(solver='liblinear', class_weight='balanced').fit(train_x, y)    
         self.classes_ = self.clf.classes_ # shouldn't matter  
 
 
