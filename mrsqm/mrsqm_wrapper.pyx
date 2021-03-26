@@ -184,6 +184,7 @@ class MrSQMClassifier:
         if random_sampling:    
             debug_logging("Sampling window size, word length, and alphabet size.")       
             ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
+            #ws_choices = [w for w in range(8,max_ws)]            
             wl_choices = [6,7,8,9,10,11,12,13,14]
             alphabet_choices = [3,4,5,6]
             for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1):
@@ -274,11 +275,12 @@ class MrSQMClassifier:
         full_fm = []
         self.filters = []
 
-        for rep, seq_features in zip(mr_seqs, self.sequences):            
+        for rep, seq_features,cfg in zip(mr_seqs, self.sequences, self.config):            
             fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
-                fm[i,:] = ft.search(s)            
+                fm[i,:] = ft.search(s)
+                #fm[i,:] = np.array(ft.search(s)) / len(s.split(b' ')) # ppv equivalence
             fm = fm > 0 # binary only
 
             fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
@@ -305,6 +307,7 @@ class MrSQMClassifier:
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
                 fm[i,:] = ft.search(s)
+                #fm[i,:] = np.array(ft.search(s)) / len(s.split(b' ')) # ppv equivalence
             fm = fm > 0 # binary only
 
             if self.strat == 'RS':
@@ -389,8 +392,8 @@ class MrSQMClassifier:
         train_x = self.feature_selection_on_train(mr_seqs, int_y)
         
         debug_logging("Fit logistic regression model.")
-        #self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
-        self.clf = LogisticRegression(solver='liblinear', class_weight='balanced').fit(train_x, y)    
+        self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
+        #self.clf = LogisticRegression(solver='liblinear', class_weight='balanced').fit(train_x, y)    
         self.classes_ = self.clf.classes_ # shouldn't matter  
 
 
