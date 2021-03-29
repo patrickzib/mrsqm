@@ -366,7 +366,7 @@ class MrSQMClassifier:
 
 
 
-    def fit(self, X, y):
+    def fit_transform(self, X, y):
         debug_logging("Fit training data.")
         self.classes_ = np.unique(y) #because sklearn also uses np.unique
 
@@ -391,12 +391,12 @@ class MrSQMClassifier:
         debug_logging("Compute feature vectors.")
         train_x = self.feature_selection_on_train(mr_seqs, int_y)
         
-        debug_logging("Fit logistic regression model.")
-        self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
-        #self.clf = LogisticRegression(solver='liblinear', class_weight='balanced').fit(train_x, y)    
-        self.classes_ = self.clf.classes_ # shouldn't matter  
-
-
+        return train_x
+    
+    def transform(self,X):
+        mr_seqs = self.transform_time_series(X)       
+        return self.feature_selection_on_test(mr_seqs)
+        
     def predict_proba(self, X): 
         mr_seqs = self.transform_time_series(X)       
         test_x = self.feature_selection_on_test(mr_seqs)
