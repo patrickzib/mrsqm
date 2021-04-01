@@ -16,6 +16,7 @@
 #include <math.h>
 #include <fstream>
 #include <set>
+#include <random>
 
 #include "common.h"
 
@@ -32,6 +33,7 @@ struct pair_2nd_cmp_alt : public std::binary_function<bool, T1, T2>
 	}
 };
 
+
 class ENode
 {
 private:
@@ -42,6 +44,7 @@ private:
 		ngram = _ngram;
 		selected = false;
 		foot_print_covered = false;
+		prob_coef_index = 0;
 	}
 
 public:
@@ -56,6 +59,7 @@ public:
 	bool foot_print_covered;
 	double chi_square;
 	double bound;
+	int prob_coef_index;
 
 	int external_index; // index of the feature in the feature space
 
@@ -327,7 +331,7 @@ private:
 		}
 	};
 
-	vector<vector<int>> ft_matrix;
+	
 
 	int number_of_ft = 0;
 
@@ -340,6 +344,10 @@ private:
 	LabelManager *ymgr;
 
 	double selection;
+	double best_chi2;
+	vector<string> mined;
+
+	double prob_coefs[5] = {0.25, 0.5, 1.0, 1.5, 2.0} ;
 
 	// prepare inverted index of all unigrams (unigram -> location)
 	ENode *prepare_inverted_index(vector<string> &sequences, vector<int> &y)
@@ -375,6 +383,9 @@ private:
 
 	bool expand_node(ENode *node, vector<string> &sequences)
 	{
+		if (!node->children.empty()){ // node already expanded in previous round
+			return true;
+		}
 		int current_doc = -1;
 		// expanding the current candidate
 		bool child_found = false;
@@ -399,43 +410,8 @@ private:
 				}
 			}
 		}
-		// compare node finger-print with its children
-		if (node->selected || node->foot_print_covered)
-		{
-			for (auto it = node->children.cbegin(); it != node->children.cend(); ++it)
-			{
-				ENode *child = it->second;
-				if (child != NULL)
-				{
-					int ci = 0;
-					int pi = 0;
-					bool matched = false;
-					while (child->loc[ci] == node->loc[pi])
-					{
-						ci++;
-						pi++;
-						while (child->loc[ci] > 0 && ci < (child->loc.size() - 1))
-						{
-							ci++;
-						}
-						while (node->loc[pi] > 0 && pi < (node->loc.size() - 1))
-						{
-							pi++;
-						}
-
-						if (pi == (node->loc.size() - 1) && ci == (child->loc.size() - 1))
-						{
-							matched = true;
-							break;
-						}
-					}
-					if (matched)
-					{						
-						child->foot_print_covered = true; // flag the child with the same fingerprint so it won't be selected later
-					}
-				}
-			}
-		}
+		
+		
 		return child_found;
 	}
 
@@ -499,59 +475,134 @@ private:
 		}
 	}
 
+	double gen_a_number(){
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_real_distribution<double> dis(0, 1);//uniform distribution between 0 and 1		
+		return dis(gen);
+	}
+
+	bool can_prune_with_best(ENode *node)
+	{
+		compute_chi_square_score_and_bound(node);
+		if (node->chi_square > this->best_chi2)
+		{
+			this->best_chi2 = node->chi_square;
+		}
+
+		if (node->bound <= this->best_chi2)
+		{
+			return true;
+		}
+
+		return false;
+
+	}
+
+	bool accept(double score, int coef_index)
+	{
+		double ch = gen_a_number();
+		double prob = score / this->best_chi2;
+		if (ch <= prob_coefs[coef_index] * prob)
+		{
+			return true;
+		} else 
+		{
+			return false;
+		}
+	}
+
+	bool can_prune_with_prob(ENode *node, vector<string> &sequences)
+	{
+		compute_chi_square_score_and_bound(node);
+
+		if (node->ngram.size() < 3) // continue expanding when the subsequence is still too short
+		{
+			return false;
+		}		
+		//cout << "Candidate: " << current_node->ngram << " / Prob: " << prob << " / Chance: " << ch << endl;
+		int bound_coef_i = 2; // coef = 1
+		int child_coef_i = node->prob_coef_index + 1;
+		if (child_coef_i > 4) {
+			child_coef_i = 4;
+		}
+		if (node->ngram.size() >= 3 && accept(node->chi_square, node->prob_coef_index)){					
+			this->mined.push_back(node->ngram);
+			bound_coef_i = 1; // less likely to expand
+			child_coef_i = 0; // child less likely to be selected
+		}
+
+		
+		
+		if (accept(node->bound,bound_coef_i)) // potential, should not prune
+		{
+			expand_node(node, sequences);
+
+			for (auto it = node->children.cbegin(); it != node->children.cend(); ++it)
+				{
+					it->second->prob_coef_index = child_coef_i;
+				}
+
+			return false;
+
+		} else // no potential, should be pruned
+		{
+			return true;
+
+		}
+
+
+
+
+
+
+	}
+
+
+
 public:
 	SQMiner()
 	{
 	}
 
-	SQMiner(int n_ssq)
-	{
-		store = NodeStore(n_ssq);
-	}
-
-	SQMiner(double selection)
-	{
-		if (selection <= 0)
-		{ // brute force
-		}
-		else if (selection < 1)
-		{ // chi-squared test with p-value = selection
-		}
-		else
-		{ // top k sequences with k = int(selection)
-			store = NodeStore(int(selection));
-		}
-
-		this->selection = selection;
-	}
-
-	SQMiner(double selection, double threshold)
-	{
-		if (selection <= 0)
-		{ // brute force
-		}
-		else if (selection < 1)
-		{ // chi-squared test with p-value = selection
-		}
-		else
-		{ // top k sequences with k = int(selection)
-			store = NodeStore(int(selection), threshold);
-		}
-
-		this->selection = selection;
-	}
 
 	vector<string> mine(vector<string> &sequences, vector<int> &y)
 	{
-
-		vector<string> output;
-		ymgr = new LabelManager(y);		
-
-		
-		int node_count = 0;
-
+		ymgr = new LabelManager(y);	
 		root = prepare_inverted_index(sequences, y);
 		vector<ENode *> unvisited;
+		this->best_chi2 = 0.0;
+
+		// the first round to find best chi2 score
+
+		for (auto it = root->children.cbegin(); it != root->children.cend(); ++it)
+		{
+			unvisited.push_back(it->second);
+		}		
+
+		while (!unvisited.empty())
+		{
+			
+			ENode *current_node = unvisited.back();
+			unvisited.pop_back();
+
+			// if path cannot be pruned then expand the node
+			if ((!can_prune_with_best(current_node)) && expand_node(current_node, sequences))
+			{
+				// add new candidates to unvisited list
+				for (auto it = current_node->children.cbegin(); it != current_node->children.cend(); ++it)
+				{
+					unvisited.push_back(it->second);
+				}
+			}
+		}
+
+		// second round to find feature
+
+		unvisited.clear();
+		this->mined.clear();
+		
+
 		for (auto it = root->children.cbegin(); it != root->children.cend(); ++it)
 		{
 			unvisited.push_back(it->second);
@@ -559,209 +610,31 @@ public:
 
 		while (!unvisited.empty())
 		{
-			node_count++;
+			
 			ENode *current_node = unvisited.back();
 			unvisited.pop_back();
 
 			// if path cannot be pruned then expand the node
-			if ((!can_prune(current_node)) && expand_node(current_node, sequences))
+			if (!can_prune_with_prob(current_node, sequences))
 			{
-				// add new candidates to unvisited list
+				
 
+				// add new candidates to unvisited list
 				for (auto it = current_node->children.cbegin(); it != current_node->children.cend(); ++it)
 				{
 					unvisited.push_back(it->second);
 				}
 			}
 		}
+
 		
-		for (int i = 0; i < store.size(); i++)
-		{
-			//store.get_node(i)->external_index = i;			
-			output.push_back(store.get_node(i)->ngram);
-			
-		}
-		//number_of_ft += store.size();
 
-		//root->print_r();
 		delete root;
-		return output;
+		return this->mined;
 	}
 
-	void write_mined_sequences(string path)
-	{
-		std::ofstream writer(path);
-		for (int i = 0; i < store.size(); i++)
-		{
-			writer << store.get_node(i)->ngram << "," << store.get_node(i)->chi_square << endl;
-		}
-		writer.close();
-	}
 
-	void generate_test_data(vector<string> &sequences, vector<int> &labels, string path)
-	{
-		// copy tree
-
-		ENode *test_root = root->copy();
-
-		// prepare inverted index
-
-		vector<ENode *> unvisited;
-
-		for (auto it = test_root->children.cbegin(); it != test_root->children.cend(); ++it)
-		{
-			unvisited.push_back(it->second);
-		}
-
-		for (int i = 0; i < sequences.size(); i++)
-		{
-			int cur_pos = 0;
-			for (char &c : sequences[i])
-			{
-				if (!isspace(c))
-				{
-					ENode *cn = test_root->get_child_without_creating(c);
-					if (cn != NULL)
-					{
-						cn->add_location(i, cur_pos);
-					}
-				}
-				cur_pos++;
-			}
-		}
-
-		// explore tree
-		vector<vector<int>> new_ft_matrix;
-		for (int i = 0; i < sequences.size(); i++)
-		{
-			new_ft_matrix.push_back(vector<int>(store.size(), 0));
-		}
-
-		while (!unvisited.empty())
-		{
-			ENode *current_node = unvisited.back();
-			unvisited.pop_back();
-
-			// if node is a feature
-			if (current_node->selected)
-			{
-				for (auto pos : current_node->loc)
-				{
-					if (pos < 0)
-					{
-						new_ft_matrix[-pos - 1][current_node->external_index] = 1;
-						//cout << current_node->external_index << endl;
-					}
-				}
-			}
-
-			// expand node
-			int current_doc = 0;
-			for (auto pos : current_node->loc)
-			{
-				if (pos < 0)
-				{
-					current_doc = -pos - 1;
-				}
-				else
-				{
-					int next_pos = pos + 1;
-					//while(next_pos < sequences[current_doc].size() && isspace(sequences[current_doc][next_pos])){
-					//	next_pos++;
-					//}
-					if (next_pos < sequences[current_doc].size() && !isspace(sequences[current_doc][next_pos]))
-					{
-						char next_unigram = sequences[current_doc][next_pos];
-						ENode *next = current_node->get_child_without_creating(next_unigram);
-						if (next != NULL)
-						{
-							next->add_location(current_doc, next_pos);
-						}
-					}
-				}
-			}
-
-			for (auto it = current_node->children.cbegin(); it != current_node->children.cend(); ++it)
-			{
-				unvisited.push_back(it->second);
-			}
-		}
-
-		// write to file
-		std::ofstream writer(path);
-		for (int i = 0; i < new_ft_matrix.size(); i++)
-		{
-			// writer << labels[i];
-			for (int f : new_ft_matrix[i])
-			{
-				writer << f << " ";
-			}
-			if (i < (new_ft_matrix.size() - 1))
-			{
-				writer << endl;
-			}
-		}
-		writer.close();
-
-		// remove tree
-		delete test_root;
-	}
-
-	// only works with brute force
-	void match_with_tree(vector<string> &sequences, vector<int> &labels, string path)
-	{
-		//vector<vector<int>> ft_matrix;
-		std::ofstream writer(path);
-		for (int i = 0; i < labels.size(); i++)
-		{
-			vector<int> vt;
-			vt.resize(store.size());
-			fill(vt.begin(), vt.end(), 0);
-			writer << labels[i];
-
-			string sequence = sequences[i];
-			for (int c = 0; c < sequence.length(); c++)
-			{
-				ENode *current = root;
-				int cur_pos = c;
-				while ((current != NULL) && (cur_pos < sequence.length()) && (!isspace(sequence.at(cur_pos))))
-				{
-					if (current != root)
-					{
-						vt[current->external_index] = 1;
-					}
-					// int next_node = sequence.at(cur_pos) - first_char;
-					current = current->children[sequence.at(cur_pos)];
-					cur_pos++;
-				}
-			}
-
-			for (int f : vt)
-			{
-				writer << " " << f;
-			}
-			writer << endl;
-		}
-		writer.close();
-	}
-
-	void write_ft_matrix(string path, vector<int> &labels)
-	{
-		std::ofstream writer(path);
-		for (int i = 0; i < ft_matrix.size(); i++)
-		{
-			// writer << labels[i];
-			for (int f : ft_matrix[i])
-			{
-				writer << f << " ";
-			}
-			if (i < (ft_matrix.size() - 1))
-			{
-				writer << endl;
-			}
-		}
-		writer.close();
-	}
+	
 };
 
 #endif /* SQMINER_H_ */

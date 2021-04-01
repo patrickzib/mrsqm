@@ -97,7 +97,7 @@ cdef extern from "strie.cpp":
 
 cdef extern from "sqminer.h":
     cdef cppclass SQMiner:
-        SQMiner(double, double)
+        SQMiner()
         vector[string] mine(vector[string] &, vector[int] &)
 
 cdef class PyFeatureTrie:
@@ -116,7 +116,7 @@ cdef class PySQM:
     cdef SQMiner *thisptr
 
     def __cinit__(self, double selection, double threshold):
-        self.thisptr = new SQMiner(selection,threshold)
+        self.thisptr = new SQMiner()
     def __dealloc__(self):
         del self.thisptr
 
