@@ -53,4 +53,4 @@ More examples can be found in the *example* directory. The full UEA and UCR Arch
 
 This repository provides supporting code, results and instructions for reproducing the work presented in our publication (under review):
 
-"MrSQM: Fast Feature Selection for Time Series Classification with Symbolic Representations", no authors for double-bliond review.
+"MrSQM: Fast Time Series Classification withMultiple Symbolic Representations and EfficientSequence Mining", no authors for double-bliond review.
