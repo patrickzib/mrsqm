@@ -16,10 +16,13 @@ cython >= 0.29
 numpy >= 1.18
 pandas >= 1.0.3
 scikit-learn >= 0.22
+sktime >= 0.4
+fftw3: http://micro.stanford.edu/wiki/Install_FFTW3
+
 ```
 
 
-Move into the code directory of the repository: 
+Extract the zip file and move into the code directory: 
 ```
 cd mrsqm/mrsqm
 ```
@@ -46,8 +49,3 @@ predicted = clf.predict(X_test)
 ```
 
 More examples can be found in the *example* directory. The full UEA and UCR Archive can be downloaded from http://www.timeseriesclassification.com/.
-
-
-This repository provides supporting code, results and instructions for reproducing the work presented in our publication (under review):
-
-"MrSQM: Fast Feature Selection for Time Series Classification with Symbolic Representations", Thach Le Nguyen and Georgiana Ifrim
