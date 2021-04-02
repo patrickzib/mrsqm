@@ -290,10 +290,7 @@ class MrSQMClassifier:
             full_fm.append(fm)
 
 
-        full_fm = np.hstack(full_fm)
-
-        #self.final_vt = VarianceThreshold()
-        #return self.final_vt.fit_transform(full_fm)
+        full_fm = np.hstack(full_fm)        
         return full_fm
 
     def feature_selection_on_test(self, mr_seqs):
@@ -313,8 +310,7 @@ class MrSQMClassifier:
             full_fm.append(fm)
 
 
-        full_fm = np.hstack(full_fm)
-        #return self.final_vt.transform(full_fm)
+        full_fm = np.hstack(full_fm)        
         return full_fm
 
     def read_reps_from_file(self, inputf):
@@ -391,6 +387,7 @@ class MrSQMClassifier:
         
         debug_logging("Fit logistic regression model.")
         self.clf = LogisticRegression(solver='newton-cg',multi_class = 'multinomial', class_weight='balanced').fit(train_x, y)        
+        #self.clf = LogisticRegression(solver='liblinear', class_weight='balanced').fit(train_x, y)        
         self.classes_ = self.clf.classes_ # shouldn't matter  
 
 
@@ -403,15 +400,3 @@ class MrSQMClassifier:
         mr_seqs = self.transform_time_series(X)       
         test_x = self.feature_selection_on_test(mr_seqs)
         return self.clf.predict(test_x)
-
-
-
-
-
- 
-
-
-
-
-
-

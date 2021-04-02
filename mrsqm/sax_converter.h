@@ -1,10 +1,3 @@
-/*
- * sax_converter.h
- *
- *  Created on: 6 Jul 2016
- *      Author: thachln
- */
-
 #ifndef SAX_CONVERTER_H_
 #define SAX_CONVERTER_H_
 

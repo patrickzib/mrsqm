@@ -1,7 +1,6 @@
 #!/usr/bin/env python3 -u
 # coding: utf-8
 
-__author__ = "Thach Le Nguyen"
 
 from setuptools import Extension, setup
 from Cython.Build import cythonize

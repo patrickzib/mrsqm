@@ -1,10 +1,3 @@
-/*
- * sqminer.h
- *
- *  Created on: 3 Jul 2017
- *      Author: thachln
- */
-
 #ifndef SQMINER_H_
 #define SQMINER_H_
 

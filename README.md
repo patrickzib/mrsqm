@@ -18,10 +18,7 @@ pandas >= 1.0.3
 scikit-learn >= 0.22
 ```
 
-Download the repository: 
-```
-git clone https://github.com/mlgig/mrsqm.git
-```
+
 Move into the code directory of the repository: 
 ```
 cd mrsqm/mrsqm

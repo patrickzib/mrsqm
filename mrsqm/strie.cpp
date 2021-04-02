@@ -1,4 +1,3 @@
-
 #include <vector>
 #include <map>
 #include <stdlib.h>
@@ -51,8 +50,7 @@ public:
 	{
 		if (children[c] == NULL)
 		{
-			children[c] = new FNode();
-			// children[c]->ngram = ngram + c;
+			children[c] = new FNode();			
 		}
 		return children[c];
 	}
