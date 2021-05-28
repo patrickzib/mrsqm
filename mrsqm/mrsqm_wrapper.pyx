@@ -407,6 +407,33 @@ class MrSQMClassifier:
         test_x = self.feature_selection_on_test(mr_seqs)
         return self.clf.predict(test_x)
 
+    def get_saliency_maps(self, ts, coefs):
+
+        weighted_x = np.zeros(len(ts))
+
+        if self.use_sax:
+
+            fi = 0 #to keep track of the representation in logreg model
+            ri = 0 #index of representation
+
+            for cfg in self.config:
+                if cfg['method'] == 'sax': # only works with sax features
+                    ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'])
+                    
+                    features = self.sequences[ri]                
+
+                    weighted_x[:] += ps.map_weighted_patterns(ts, features, coefs[fi:(fi+len(features))])
+                            
+
+                    
+                
+                fi += len(self.sequences[ri])
+                ri += 1
+            return weighted_x
+        else:
+            print('The mapping only works on fs mode. In addition, only sax features will be mapped to the time series.')
+            return None
+
 
 
 
