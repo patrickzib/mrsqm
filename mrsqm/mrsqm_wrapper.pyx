@@ -294,8 +294,9 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        self.vt_filter = VarianceThreshold()
-        return self.vt_filter.fit_transform(full_fm)
+        #self.vt_filter = VarianceThreshold()
+        #return self.vt_filter.fit_transform(full_fm)
+        return full_fm
 
     def feature_selection_on_test(self, mr_seqs):
         debug_logging("Compute test data in subsequence space.")
@@ -317,7 +318,8 @@ class MrSQMClassifier:
 
         full_fm = np.hstack(full_fm)
 
-        return self.vt_filter.transform(full_fm)
+        #return self.vt_filter.transform(full_fm)
+        return full_fm
 
     def read_reps_from_file(self, inputf):
         last_cfg = None
