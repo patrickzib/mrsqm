@@ -2,6 +2,8 @@ from libcpp.string cimport string
 from libcpp cimport bool
 from libcpp.vector cimport vector
 
+import itertools
+
 import numpy as np
 import pandas as pd
 from numpy.random import randint
@@ -13,7 +15,8 @@ from sklearn.feature_selection import chi2
 import logging
 
 def debug_logging(message, level=10):
-    logging.log(level, message)
+    return
+    # logging.log(level, message)
 
 
 
@@ -174,51 +177,87 @@ class MrSQMClassifier:
 
     def evaluate_pars(self, exemplars, pars):
         ps = PySAX(pars[0], pars[1], pars[2], 1)
-        sr = 0.0
+        sr = []
         pairs = [(p1, p2) for p1 in range(len(exemplars)) for p2 in range(p1+1, len(exemplars))]
         for p1,p2 in pairs:
-            sr += cs(ps.timeseries2SAX(exemplars[p1]), ps.timeseries2SAX(exemplars[p2]))
+            sr.append(cs(ps.timeseries2SAX(exemplars[p1]), ps.timeseries2SAX(exemplars[p2])))
         return sr
 
-    def evaluate_and_select_pars(self, X, y):       
+    def detect_knee_point(self, values, indices):
+        """
+        From:
+        https://stackoverflow.com/questions/2018178/finding-the-best-trade-off-point-on-a-curve
+        """
+        # get coordinates of all the points
+        #print(values)
+        #print(indices)
+        n_points = len(values)
+        #print(n_points)
+        all_coords = np.vstack((range(n_points), values)).T
+        # get the first point
+        first_point = all_coords[0]
+        # get vector between first and last point - this is the line
+        line_vec = all_coords[-1] - all_coords[0]
+        line_vec_norm = line_vec / np.sqrt(np.sum(line_vec ** 2))
+        vec_from_first = all_coords - first_point
+        scalar_prod = np.sum(
+            vec_from_first * np.tile(line_vec_norm, (n_points, 1)), axis=1)
+        vec_from_first_parallel = np.outer(scalar_prod, line_vec_norm)
+        vec_to_line = vec_from_first - vec_from_first_parallel
+        # distance to line is the norm of vec_to_line
+        dist_to_line = np.sqrt(np.sum(vec_to_line ** 2, axis=1))
+        # knee/elbow is the point with max distance value
+        knee_idx = np.argmax(dist_to_line)
+        knee  = values[knee_idx] 
+
+        print(f"Knee Value: {values[knee_idx]}") 
+        
+        best_dims = [idx for (elem, idx) in zip(values, indices) if elem>knee]
+        
+        return best_dims, knee_idx
+
+    def evaluate_and_select_pars(self, X, y):   
 
         max_ws = len(X.iloc[0, 0])
-
-        n_cdds = 10 # number of candidates per round
-        n_rounds = int(np.log2(max_ws))+ 1 - 3 # number of rounds ~ number or reps 
-
+        
         ws_choices = [int(2**(w/self.xrep)) for w in range(3*self.xrep,self.xrep*int(np.log2(max_ws))+ 1)]            
-        wl_choices = [6,7,8,9,10,11,12,13,14,15,16]
-        alphabet_choices = [3,4,5,6]
+    
+        wl_choices = [6,8,10,12,14,16]
+    
+        alphabet_choices = [4]
+    
+        candidates = list(itertools.product(ws_choices, wl_choices, alphabet_choices))
+        class_reps = self.get_exemplars(X,y)
 
-        pars = []
+        distance_mat = []
+        for c in candidates:
+            distance_mat.append(self.evaluate_pars(class_reps,c))
+        distance_mat = np.array(distance_mat)
 
-        for i in range(n_rounds):
-            highest_scr = 0 #
-            exemplars = self.get_exemplars(X,y)
-            chosen = [np.random.choice(ws_choices),np.random.choice(wl_choices),np.random.choice(alphabet_choices)] # first candidate
-            highest_scr = self.evaluate_pars(exemplars,chosen)
-            for i in range(n_cdds - 1):
-                ws = np.random.choice(ws_choices)
-                wl = np.random.choice(wl_choices)
-                a = np.random.choice(alphabet_choices)
-                debug_logging('Candidate: ' + str(ws) + '/' + str(wl) + '/' + str(a), 20)
-                score = self.evaluate_pars(exemplars, [ws, wl, a])
-                debug_logging('Score: ' + str(score), 20)
-                if score > highest_scr:
-                    debug_logging('New highscore. Best candidate yet.', 20)
-                    highest_scr = score                    
-                    chosen = [ws,wl,a]
-            pars.append(chosen)
-
-        debug_logging("Selected Parameters: ", 30)
-        debug_logging(str(pars), 30)
-        debug_logging("Number of Reps: " + str(len(pars)),30)  
+        sort_idx = []
+        for ii in range(distance_mat.shape[1]):
+            sort_idx.append(np.argsort(distance_mat[:,ii])[::-1])
         
+        chosen = [False for i in range(len(candidates))]
+
+        # pick top candidate from each column (class pair) -> there could be overlapping between column
+        for i in range(distance_mat.shape[0]):
+            for ii in range(distance_mat.shape[1]):
+                chosen[sort_idx[ii][i]] = True
+                if sum(chosen) >= len(ws_choices): 
+                    break
+            else:
+                continue
+            break            
+            
         self.config = []
-        for p in pars:
-            self.config.append({'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 'dilation': 1})      
-        
+        for i in range(len(candidates)):
+            if chosen[i]:
+                debug_logging("Chosen candidate: " + str(candidates[i]) + " with centroid distances: " + str(distance_mat[i,:]),40)
+                self.config.append(
+                        {'method': 'sax', 'window': candidates[i][0], 'word': candidates[i][1], 'alphabet': candidates[i][2],                         
+                        'dilation': 1})           
+
      
 
     def create_pars(self, min_ws, max_ws, random_sampling=False):
@@ -270,7 +309,7 @@ class MrSQMClassifier:
         for cfg in self.config:
             for i in range(ts_x.shape[1]):
                 tssr = []
-
+                
                 if cfg['method'] == 'sax':  # convert time series to SAX                    
                     ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'], cfg['dilation'])
                     for ts in ts_x.iloc[:,i]:
