@@ -267,7 +267,7 @@ class MrSQMClassifier:
         
      
 
-    def create_pars(self, min_ws, max_ws, xrep, random_sampling=False, is_sfa=False):
+    def create_pars(self, min_ws, max_ws, n_channels, xrep, random_sampling=False, is_sfa=False):
         pars = []      
         if xrep > 0:      
             if random_sampling:    
@@ -277,10 +277,14 @@ class MrSQMClassifier:
                 if is_sfa:
                     wl_choices = [6,8,10,12,14] # can't handle 16x6 case
                 alphabet_choices = [3,4,5,6]
+                channel_choices = [i for i in range(n_channels)]
 
-                nrep = xrep*int(np.log2(max_ws))                
+                ch_coef = 1 if n_channels == 1 else max(2,int(np.log2(n_channels))) # to include univarate case
+
+
+                nrep = xrep*int(np.log2(max_ws))*ch_coef
                 for w in range(nrep):
-                    pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices)])
+                    pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices),np.random.choice(n_channels)])
             else:
                 #debug_logging("Doubling the window while fixing word length and alphabet size.")                   
                 #pars = [[int(2**(w/xrep)),8,4] for w in range(3*xrep,xrep*int(np.log2(max_ws))+ 1)]     
@@ -299,7 +303,7 @@ class MrSQMClassifier:
         
         multi_tssr = []   
 
-        
+        n_channels = ts_x.shape[1]
         
      
         if not self.config:
@@ -313,36 +317,37 @@ class MrSQMClassifier:
             max_ws = (min_len + max_len)//2            
             
             
-            pars = self.create_pars(min_ws, max_ws, self.nsax, random_sampling=True, is_sfa=False)            
+            pars = self.create_pars(min_ws, max_ws, n_channels, self.nsax, random_sampling=True, is_sfa=False)            
             for p in pars:
                 self.config.append(
                         {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 
                         # 'dilation': np.int32(2 ** np.random.uniform(0, np.log2((min_len - 1) / (p[0] - 1))))})
-                        'dilation': 1})
+                        'dilation': 1, 'channel': p[3]})
             
-            pars = self.create_pars(min_ws, max_ws, self.nsfa, random_sampling=True, is_sfa=True)            
+            pars = self.create_pars(min_ws, max_ws, n_channels, self.nsfa, random_sampling=True, is_sfa=True)            
             for p in pars:
                 self.config.append(
-                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2] , 'normSFA': False, 'normTS': self.sfa_norm
+                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2] , 'normSFA': False, 'normTS': self.sfa_norm, 'channel': p[3]
                         })        
 
         
         for cfg in self.config:
-            for i in range(ts_x.shape[1]):
-                tssr = []
-                ts_x_array = from_nested_to_2d_array(ts_x.iloc[:,i]).values
+            
+            tssr = []
+            
 
-                if cfg['method'] == 'sax':  # convert time series to SAX                    
-                    ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'], cfg['dilation'])
-                    for ts in ts_x.iloc[:,i]:
-                        sr = ps.timeseries2SAXseq(ts)
-                        tssr.append(sr)
-                elif  cfg['method'] == 'sfa':
-                    if 'signature' not in cfg:
-                        cfg['signature'] = PySFA(cfg['window'], cfg['word'], cfg['alphabet'], cfg['normSFA'], cfg['normTS']).fit(ts_x_array)
-                    
-                    tssr = cfg['signature'].transform(ts_x_array)
-                multi_tssr.append(tssr)        
+            if cfg['method'] == 'sax':  # convert time series to SAX                    
+                ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'], cfg['dilation'])
+                for ts in ts_x.iloc[:,cfg['channel']]:
+                    sr = ps.timeseries2SAXseq(ts)
+                    tssr.append(sr)
+            elif  cfg['method'] == 'sfa':
+                ts_x_array = from_nested_to_2d_array(ts_x.iloc[:,cfg['channel']]).values
+                if 'signature' not in cfg:
+                    cfg['signature'] = PySFA(cfg['window'], cfg['word'], cfg['alphabet'], cfg['normSFA'], cfg['normTS']).fit(ts_x_array)
+                
+                tssr = cfg['signature'].transform(ts_x_array)
+            multi_tssr.append(tssr)        
 
         return multi_tssr
   
