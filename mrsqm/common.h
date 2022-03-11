@@ -61,6 +61,20 @@ size_t find_subsequence(std::string seq,std::string subseq,double distance, size
 }
 
 
+std::vector<std::string> split_string(std::string str,std::string delimiter){
+	std::vector<std::string> splitted;
+	size_t pos = 0;	
+
+	while ((pos = str.find(delimiter)) != std::string::npos) {		
+		splitted.push_back(str.substr(0, pos));
+		str.erase(0, pos + delimiter.length());
+	}
+	if (!str.empty()){
+		splitted.push_back(str);
+	}
+	return splitted;
+}
+
 
 std::vector<double> string_to_double_vector(std::string str,std::string delimiter){
 	std::vector<double> numeric_ts;

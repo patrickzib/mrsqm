@@ -64,7 +64,7 @@ public:
 
 	// Constructor
 	SAX(int N, int w, int a,int di){
-		init(N,w,a,1,BACK2BACK_NR,di);
+		init(N,w,a,1,NONE_NR,di);
 	}
 	
 

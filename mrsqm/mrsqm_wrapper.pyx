@@ -176,6 +176,7 @@ cdef extern from "strie.cpp":
     cdef cppclass SeqTrie:
         SeqTrie(vector[string])
         vector[int] search(string)
+        vector[int] multivariate_search(vector[string])
 
 
 cdef extern from "sqminer.h":
@@ -194,6 +195,9 @@ cdef class PyFeatureTrie:
     def search(self, string sequence):
         return self.thisptr.search(sequence)
 
+    def multivariate_search(self, vector[string] sequence):
+        return self.thisptr.multivariate_search(sequence)
+
 
 cdef class PySQM:
     cdef SQMiner *thisptr
@@ -208,6 +212,13 @@ cdef class PySQM:
 
 
 ######################### MrSQM Classifier #########################
+
+# class MultivariateSequence:
+#     def __init__(self):
+#         self.mseqs = []
+    
+#     def add_channel(self, sequences):
+#         self.mseqs
 
 class MrSQMClassifier:    
     '''     
@@ -228,11 +239,12 @@ class MrSQMClassifier:
 
     '''
 
-    def __init__(self, strat = 'RS', features_per_rep = 500, selection_per_rep = 2000, nsax = 1, nsfa = 0, custom_config=None, random_state = None, sfa_norm = True):
+    def __init__(self, strat = 'R', features_per_rep = 500, selection_per_rep = 2000, nsax = 1, nsfa = 0, maxch = 3, custom_config=None, random_state = None, sfa_norm = True):
         
 
         self.nsax = nsax
         self.nsfa = nsfa
+        self.maxch = maxch
 
         self.sfa_norm = sfa_norm
         if random_state is not None:
@@ -283,8 +295,15 @@ class MrSQMClassifier:
 
 
                 nrep = xrep*int(np.log2(max_ws))*ch_coef
+                
                 for w in range(nrep):
-                    pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices),np.random.choice(n_channels)])
+                    if self.maxch <= 1 or n_channels == 1:
+                        n_channels_select = 1
+                    else:
+                        n_channels_select = randint(1,min(n_channels,self.maxch))                    
+                    channels = np.random.choice(channel_choices, n_channels_select ,replace=False)
+                 
+                    pars.append([np.random.choice(ws_choices) , np.random.choice(wl_choices), np.random.choice(alphabet_choices), channels])
             else:
                 #debug_logging("Doubling the window while fixing word length and alphabet size.")                   
                 #pars = [[int(2**(w/xrep)),8,4] for w in range(3*xrep,xrep*int(np.log2(max_ws))+ 1)]     
@@ -322,53 +341,115 @@ class MrSQMClassifier:
                 self.config.append(
                         {'method': 'sax', 'window': p[0], 'word': p[1], 'alphabet': p[2], 
                         # 'dilation': np.int32(2 ** np.random.uniform(0, np.log2((min_len - 1) / (p[0] - 1))))})
-                        'dilation': 1, 'channel': p[3]})
+                        'dilation': 1, 'channels': p[3]})
             
             pars = self.create_pars(min_ws, max_ws, n_channels, self.nsfa, random_sampling=True, is_sfa=True)            
             for p in pars:
                 self.config.append(
-                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2] , 'normSFA': False, 'normTS': self.sfa_norm, 'channel': p[3]
+                        {'method': 'sfa', 'window': p[0], 'word': p[1], 'alphabet': p[2] ,
+                        'normSFA': False, 'normTS': self.sfa_norm, 'channels': p[3]
                         })        
 
         
         for cfg in self.config:
             
-            tssr = []
-            
+            mseqs = []    
 
             if cfg['method'] == 'sax':  # convert time series to SAX                    
-                ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'], cfg['dilation'])
-                for ts in ts_x.iloc[:,cfg['channel']]:
-                    sr = ps.timeseries2SAXseq(ts)
-                    tssr.append(sr)
-            elif  cfg['method'] == 'sfa':
-                ts_x_array = from_nested_to_2d_array(ts_x.iloc[:,cfg['channel']]).values
-                if 'signature' not in cfg:
-                    cfg['signature'] = PySFA(cfg['window'], cfg['word'], cfg['alphabet'], cfg['normSFA'], cfg['normTS']).fit(ts_x_array)
+                ps = PySAX(cfg['window'], cfg['word'], cfg['alphabet'], cfg['dilation'])                
+                for ch in cfg['channels']:
+                    useqs = []
+                    for ts in ts_x.iloc[:,ch]:
+                        sr = ps.timeseries2SAXseq(ts)
+                        useqs.append(sr)
+                    mseqs.append(useqs)
                 
-                tssr = cfg['signature'].transform(ts_x_array)
-            multi_tssr.append(tssr)        
+            elif  cfg['method'] == 'sfa':
+                for ch in cfg['channels']:
+                    ts_x_array = from_nested_to_2d_array(ts_x.iloc[:,ch]).values
+                    if 'signature' not in cfg:
+                        cfg['signature'] = PySFA(cfg['window'], cfg['word'], cfg['alphabet'], cfg['normSFA'], cfg['normTS']).fit(ts_x_array)
+                
+                    mseqs.append(cfg['signature'].transform(ts_x_array))
+                    
+            # rearrange data
+            rear_mseqs = []
+            for i in range(len(mseqs[0])):
+                mv_seq = []
+                for ch in range(len(mseqs)):
+                    mv_seq.append(mseqs[ch][i])
+                rear_mseqs.append(mv_seq)
+
+            multi_tssr.append(rear_mseqs)        
 
         return multi_tssr
   
-    def sample_random_sequences(self, seqs, min_length, max_length, max_n_seq):  
+    def sample_random_sequences(self, mseqs, min_length, max_length, max_n_seq):  
+        
+        
                 
         output = set()
-        splitted_seqs = [s.split(b' ') for s in seqs]
-        n_input = len(seqs)       
+        splitted_seqs = [s.split(b' ') for s in mseqs[0]]
+        n_input = len(mseqs[0])       
+        
 
         # while len(output) < n_seq: #infinity loop if sequences are too alike
         for i in range(0, max_n_seq):
             did = randint(0,n_input)
-            wid = randint(0,len(splitted_seqs[did]))
+            
+            seq = mseqs[0][did]
+            
+            
+            
+            wid = randint(0,len(splitted_seqs[did]))            
             word = splitted_seqs[did][wid]
             
             s_length = randint(min_length, min(len(word) + 1, max_length + 1))
             start = randint(0,len(word) - s_length + 1)        
             sampled = word[start:(start + s_length)]
+            
+            # add the rest of the channels at the same location
+            for useqs in mseqs[1:]:
+                sampled += b' ' + useqs[i].split(b' ')[wid]
             output.add(sampled)
         
         return list(output)
+    
+    def sample_multivariate_subsequences(self, mseqs, max_n_seq):
+        min_length = 3
+        max_length = 16
+        output = set()
+        n_input = len(mseqs)
+        word_length = len(mseqs[0][0].split(b' ')[0])
+        for i in range(0,max_n_seq):
+            #debug_logging("\n------Sampling new sequence-----\n",lvl=1)
+            did = randint(0,n_input)
+            #debug_logging("Sampling from instance " + str(did),lvl=1)              
+            seq = mseqs[did][0]
+            #debug_logging("Sequence: " + seq.decode("utf-8"),lvl=1)  
+            word_count = int((len(seq) + 1)/(word_length+1)) # should be integer
+            #debug_logging("Word count: " + str(word_count),lvl=1)
+            wid = randint(0,word_count)
+            #debug_logging("Word selected: " + str(wid),lvl=1)  
+            word_first_loc = wid*(word_length+1)
+            #debug_logging("Word location: " + str(word_first_loc),lvl=1)  
+            subseq_len = randint(min_length, min(word_length + 1, max_length + 1))
+            #debug_logging("Length of subsequence: " + str(subseq_len),lvl=1)  
+            subseq_start= word_first_loc + randint(0,word_length - subseq_len + 1)
+            #debug_logging("Subsequence starts at: " + str(subseq_start),lvl=1)  
+            subseq_end = subseq_start + subseq_len
+            #debug_logging("Subsequence ends at: " + str(subseq_end),lvl=1)  
+            sampled = seq[subseq_start:subseq_end]
+            #debug_logging("Subsequence: " + sampled.decode("utf-8"),lvl=1 )  
+            for rseq in mseqs[did][1:]:
+                sampled += b' ' + rseq[subseq_start:subseq_end]
+                #debug_logging("MvSubsequence: " + sampled.decode("utf-8"),lvl=1 )  
+            
+            output.add(sampled)
+        return list(output)
+            
+            
+        
 
     def feature_selection_on_train(self, mr_seqs, y):
         debug_logging("Compute train data in subsequence space.")
@@ -382,7 +463,7 @@ class MrSQMClassifier:
             fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
             ft = PyFeatureTrie(seq_features)
             for ii,s in enumerate(rep):
-                fm[ii,:] = ft.search(s)            
+                fm[ii,:] = ft.multivariate_search(s)            
             fm = fm > 0 # binary only
 
             fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
@@ -411,7 +492,7 @@ class MrSQMClassifier:
             fm = np.zeros((len(rep), len(seq_features)),dtype = np.int32)
             ft = PyFeatureTrie(seq_features)
             for i,s in enumerate(rep):
-                fm[i,:] = ft.search(s)
+                fm[i,:] = ft.multivariate_search(s)
             fm = fm > 0 # binary only
 
             # if self.strat == 'RS':
@@ -440,10 +521,12 @@ class MrSQMClassifier:
 
         elif self.strat == 'R':
             debug_logging("Random sampling " + str(self.fpr) + " subsequences from this symbolic representation.")
-            mined_subs = self.sample_random_sequences(rep,3,16,self.fpr)
+            #mined_subs = self.sample_random_sequences(rep,3,16,self.fpr)
+            mined_subs = self.sample_multivariate_subsequences(rep,self.fpr)
         elif self.strat == 'RS':
             debug_logging("Random sampling " + str(self.spr) + " subsequences from this symbolic representation.")
-            mined_subs = self.sample_random_sequences(rep,3,16,self.spr)
+            #mined_subs = self.sample_random_sequences(rep,3,16,self.spr)
+            mined_subs = self.sample_multivariate_subsequences(rep,self.spr)
 
         debug_logging("Found " + str(len(mined_subs)) + " unique subsequences.")
         return mined_subs
@@ -459,9 +542,8 @@ class MrSQMClassifier:
         self.sequences = []
 
         debug_logging("Search for subsequences.")        
-        mr_seqs = self.transform_time_series(X)
-        
-        
+        mr_seqs = self.transform_time_series(X)       
+                
         
         for rep in mr_seqs:
             mined = self.mine(rep,int_y)
@@ -520,8 +602,6 @@ class MrSQMClassifier:
         if not is_multiclass:
             weighted_ts[0, :] = -weighted_ts[1, :]
         return weighted_ts
-        
-
 
 
 
