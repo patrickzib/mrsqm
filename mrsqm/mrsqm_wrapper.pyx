@@ -7,7 +7,7 @@ import pandas as pd
 from numpy.random import randint
 from sklearn.linear_model import LogisticRegression, RidgeClassifierCV
 
-from sklearn.feature_selection import SelectKBest, chi2, VarianceThreshold
+from sklearn.feature_selection import SelectKBest, chi2, VarianceThreshold, SelectFromModel
 
 
 
@@ -379,7 +379,8 @@ class MrSQMClassifier:
                 fm[ii,:] = ft.search(s)            
             fm = fm > 0 # binary only
 
-            fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
+            #fs = SelectKBest(chi2, k=min(self.fpr, fm.shape[1]))
+            fs = SelectFromModel(RidgeClassifierCV(alphas=np.logspace(-5, 5, 10)))
             if self.strat == 'RS':
                 debug_logging("Filter subsequences of this representation with chi2 (only with RS).")
                 fm = fs.fit_transform(fm, y)
